@@ -5,8 +5,11 @@ description = ""
 authors = ["John W. Terrell <john@coolpeoplenetworks.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 ExifRead = "^2.3.2"
+CouchDB = "^1.2"
+PyExifTool = "^0.4.11"
+uuid = "^1.30"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
@@ -16,4 +19,4 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-pasync = "photoarchive.sync:main"
+paimport = "photoarchive.import:main"
