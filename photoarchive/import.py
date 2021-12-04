@@ -13,8 +13,8 @@ extensions = (
     ".heic",
     ".jpg",
     ".jpeg",
-    ".mov",
-    ".mp4",
+#    ".mov",
+#    ".mp4",
     ".nef",
     ".png",
     ".tif",
@@ -26,7 +26,26 @@ unique_identifier_keys = (
     "XMP:OriginalDocumentID",
 )
 
+binary_tag_markers = (
+    '(Binary data',
+    '(large array of'
+)
+
+keys_to_ignore = (
+    'SourceFile'    # See File.RelativePath as replacement
+)
+
 generateduuid_value = 'Generated UUID'
+
+def is_binary_value(value):
+    is_binary = False
+    if type(value) is str:
+        for binary_tag_marker in binary_tag_markers:
+            if value.startswith(binary_tag_marker):
+                is_binary = True
+                break
+
+    return is_binary
 
 def get_image_unique_id(metadata):
     id = ''
@@ -52,8 +71,11 @@ def get_file_metadata(et, file):
     binary_keys = []
 
     for key in imported_metadata.keys():
+        if key in keys_to_ignore:
+            continue
+
         value = imported_metadata[key]
-        if type(value) is str and value.startswith("(Binary data"):
+        if is_binary_value(value):
             binary_keys.append(key)
         else:
             split = key.split(':', 1)
@@ -75,7 +97,7 @@ def import_directory(walk_dir):
     db = couch['photoarchive']
 
     file_count = 0
-    max_files = 1000
+    max_files = -10000
     finished = False
 
     found_extensions = {}
@@ -98,6 +120,11 @@ def import_directory(walk_dir):
                 file_path = os.path.join(root, f_name)
                 relative_path = os.path.relpath(file_path, walk_dir)
 
+                existing_images = db.view('_design/images/_view/byRelativePath', key=relative_path)
+                if len(existing_images) != 0:
+                    print(f'File: {file_path} (Source Path Exists, Skipping)')
+                    continue
+
                 # Extract file metadata
                 metadata, binary_keys, id, derived_from = get_file_metadata(et, file_path)
                 existing_image = db.view('_all_docs', key=id)
@@ -105,30 +132,34 @@ def import_directory(walk_dir):
                     print(f'File: {file_path} (ID Exists, Skipping)')
                     continue
 
-                existing_images = db.view('_design/images/_view/bySourceFile', key=relative_path)
-                if len(existing_images) != 0:
-                    print(f'File: {file_path} (Source Path Exists, Skipping)')
-                    continue
-
                 print(f'File: {file_path}')
+
+                if not 'MIMEType' in metadata['File']:
+                    continue
 
                 photoarchive_specific = {}
 
-                metadata['SourceFile'] = relative_path
-                metadata['type'] = "image"
+                metadata['File']['RelativePath'] = relative_path
                 metadata['_id'] = id
                 photoarchive_specific['IDDerivedFrom'] = derived_from
 
                 metadata['PhotoArchive'] = photoarchive_specific
+
+                mime_type = metadata['File']['MIMEType']
+                if not mime_type.startswith('image'):
+                    print(f"Error: MIME type doesn't begin with 'image': {mime_type}")
+                    finished = True
+                    break
+
                 db.save(metadata)
 
-                for key_with_binary_data in binary_keys:
-                    process_result = subprocess.run(['exiftool', '-b', f'-{key_with_binary_data}', file_path],stdout=subprocess.PIPE)
-                    db.put_attachment(metadata, process_result.stdout, key_with_binary_data)
+                # for key_with_binary_data in binary_keys:
+                #     process_result = subprocess.run(['exiftool', '-ignoreMinorErrors', '-b', f'-{key_with_binary_data}', file_path],stdout=subprocess.PIPE)
+                #     db.put_attachment(metadata, process_result.stdout, key_with_binary_data)
 
-                # Add the file itself as an attachment
-                file = open(file_path, "rb")
-                db.put_attachment(metadata, file, f_name)
+                # # Add the file itself as an attachment
+                # file = open(file_path, "rb")
+                # db.put_attachment(metadata, file, f_name)
 
                 file_count += 1
                 if (max_files > 0 and file_count >= max_files):
@@ -148,4 +179,4 @@ def main():
     import_directory(walk_dir)
 
 if __name__ == "__main__":
-    import_directory("/Volumes/photography/Catalogs/John's Personal/John's Masters/1988")
+    import_directory("/Volumes/photography/Catalogs/John's Personal/John's Masters/")
